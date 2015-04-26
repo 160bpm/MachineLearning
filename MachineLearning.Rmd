@@ -1,0 +1,106 @@
+---
+title: "MachineLearningProject"
+author: "Alan Yun"
+date: "Sunday, April 26, 2015"
+output: html_document
+---
+
+##Executive Summary
+Purpose of this project is to develop the model to predict the classes for lifting barbell correctly and incorrectly in 5 different ways, using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participatns. 
+ 
+
+##Data Loading 
+First of all, training data and testing data have been loaded
+
+```{r dataload, echo=TRUE, results="hide"}
+library(knitr)
+library(randomForest)
+library(caret)
+library(grDevices)
+
+#GetWorkingDirectory
+wd <- getwd() 
+if (!file.exists("./data")) {dir.create("./data")}
+wd <- paste(wd,"/data", sep="")
+
+#download file
+fileUrl.training <-  "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+fileName.training <- "pml-training.csv"
+
+fileUrl.testing <-  "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+fileName.testing <- "pml-testing.csv"
+
+download.file(fileUrl.training, file.path(wd, fileName.training ), mode="wb", method="auto")
+download.file(fileUrl.testing, file.path(wd, fileName.testing ), mode="wb", method="auto")
+
+#read data
+training <- read.csv(file.path(wd, fileName.training))
+testing <- read.csv(file.path(wd, fileName.testing))
+```
+
+As a part of exploratory analysis, reviewed a number of dimension and variables
+```{r data explore, echo=TRUE}
+#explore data - observations and variables
+dim(training)
+```
+From training data set, 19,622 observations with 160 variables found.  
+
+##Pre-Process
+Performed pre-proces for training data in three different ways. 
+1. Remove missing data from training data set
+2. Remove near Zero-variance variables
+3. Remove columns which are not used for the model
+4. Perform Principal Components Analysis (PCA)
+```{r preprocess, echo=TRUE, results="hide"}
+#handle missing data 
+training.NAs <- apply(training,2,function(x) {sum(is.na(x))})
+training.NoNAs <- training[,which(training.NAs == 0)]
+
+testing.NAs <- apply(testing,2,function(x) {sum(is.na(x))})
+testing.NoNAs <- testing[,which(testing.NAs == 0)]
+
+#handle near Zero-variance variables
+nzvTraining <- nearZeroVar(training.NoNAs)
+training.nzv <- training.NoNAs[-nzvTraining]
+
+nzvTesting <- nearZeroVar(testing.NoNAs)
+testing.nzv <- testing.NoNAs[-nzvTesting]
+
+#Remove unnecessary and non-numeric columns
+removeCol <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","new_window")
+training.ColRemoved <- training.nzv[,!(names(training.nzv) %in% removeCol)]
+testing.ColRemoved <- testing.nzv[,!(names(testing.nzv) %in% removeCol)]
+
+#PCA
+preProc <- preProcess(training.ColRemoved[, -54], method = "pca", thresh = 0.99)
+trainPC <- predict(preProc, training.ColRemoved[, -54] )
+testPC <- predict(preProc, testing.ColRemoved[, -54] )
+```
+
+##Develop model
+Create partition for data validation - 70% for training and 30% for validation. Using partitioned training data, create prediction model using random forests. 
+```{r modelFit, echo=TRUE}
+#Create Partition for predict model
+inTrain = createDataPartition(y=training.ColRemoved$classe, p = 0.7, list = FALSE)
+Train.Train<-training.ColRemoved[inTrain,]
+Train.Testing<-training.ColRemoved[-inTrain,]
+
+#set randome seed for reproducible
+set.seed(1234)
+
+RFModel <- randomForest(classe~., data=Train.Train, importance=TRUE)
+RFModel
+```
+
+##Confusion Matrix
+Using RF model developed using training data set, classe for validation data set is predicted. Predicted value is compated with its original classe and confusion matrix is produced as below. 
+```{r cm, echo=TRUE}
+# Run model for validation data
+PredTesting <- predict(RFModel, newdata=Train.Testing)
+#Confusion matrix
+confusionMatrix(PredTesting, Train.Testing$classe)
+
+```
+According to the Confusion matrix, a model correctly predicts classe for 5865 observatrions and makes only 19 errors. An accuracy of model is 99.66%. 
+
+
